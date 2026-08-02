@@ -1,0 +1,48 @@
+{
+  "artifact_type": "herdr_task",
+  "base_revision": "953455e000000000000000000000000000000000",
+  "authority": {
+    "commit": true,
+    "edit": true,
+    "external_actions": [],
+    "network": false
+  },
+  "context": "Refresh tokens are single-use. Preserve the access-token response schema.",
+  "dependencies": [],
+  "does_not_own": [
+    "package.json",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "deploy/**"
+  ],
+  "done_when": [
+    "A consumed refresh token cannot be reused",
+    "Focused authentication tests pass",
+    "The candidate is committed and the checkout is clean"
+  ],
+  "instruction_layers": [
+    "shared-engineering.md",
+    "auth-writer.md"
+  ],
+  "lane": "normal",
+  "objective": "Implement refresh-token rotation.",
+  "owner": "auth-writer",
+  "owns": [
+    "src/auth/**",
+    "tests/auth/**"
+  ],
+  "project_id": "shop-api",
+  "repository": "/projects/shop-api",
+  "requirements": [
+    "Reject reuse of a consumed refresh token",
+    "Preserve the existing access-token response schema",
+    "Add focused tests for rotation and reuse rejection"
+  ],
+  "schema_version": 2,
+  "target_branch": "main",
+  "task_id": "login-refresh",
+  "verification": [
+    "npm test -- auth"
+  ],
+  "workspace": "shop-api-auth-writer"
+}
