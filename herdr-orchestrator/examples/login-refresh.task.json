@@ -25,6 +25,8 @@
     "auth-writer.md"
   ],
   "lane": "normal",
+  "model": "gpt-5.6-luna",
+  "effort": "max",
   "objective": "Implement refresh-token rotation.",
   "owner": "auth-writer",
   "owns": [
@@ -38,9 +40,10 @@
     "Preserve the existing access-token response schema",
     "Add focused tests for rotation and reuse rejection"
   ],
-  "schema_version": 2,
+  "schema_version": 4,
   "target_branch": "main",
   "task_id": "login-refresh",
+  "task_kind": "implementation",
   "verification": [
     "npm test -- auth"
   ],

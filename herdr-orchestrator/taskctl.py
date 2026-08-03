@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and render Herdr task contracts, evidence, and handoffs."""
+"""Validate and render Chief task contracts, evidence, and handoffs."""
 
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
+SUPPORTED_SCHEMA_VERSIONS = {2, 3, SCHEMA_VERSION}
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 REVISION_PATTERN = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -145,8 +146,9 @@ def require_string_list(
 
 
 def validate_identity(artifact: dict[str, Any]) -> None:
-    if artifact.get("schema_version") != SCHEMA_VERSION:
-        raise ArtifactError(f"'schema_version' must be {SCHEMA_VERSION}")
+    if artifact.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
+        versions = " or ".join(str(item) for item in sorted(SUPPORTED_SCHEMA_VERSIONS))
+        raise ArtifactError(f"'schema_version' must be {versions}")
     require_id(artifact, "project_id")
     require_id(artifact, "task_id")
 
@@ -174,6 +176,10 @@ def validate_task(task: dict[str, Any], source: Path | None = None) -> None:
         "dependencies",
         "instruction_layers",
     }
+    if task.get("schema_version") in {3, SCHEMA_VERSION}:
+        required.update({"model", "effort"})
+    if task.get("schema_version") == SCHEMA_VERSION:
+        required.add("task_kind")
     require_exact_keys(task, required)
     if task.get("artifact_type") != "herdr_task":
         raise ArtifactError("'artifact_type' must be 'herdr_task'")
@@ -188,6 +194,28 @@ def validate_task(task: dict[str, Any], source: Path | None = None) -> None:
         raise ArtifactError("'base_revision' must be a full 40- or 64-character Git hash")
     if require_string(task, "lane") not in {"tiny", "normal", "high-risk"}:
         raise ArtifactError("'lane' must be tiny, normal, or high-risk")
+    if task["schema_version"] in {3, SCHEMA_VERSION}:
+        model = require_string(task, "model")
+        if model not in {"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"}:
+            raise ArtifactError(
+                "'model' must be an explicit GPT-5.6 Luna, Terra, or Sol slug"
+            )
+        effort = require_string(task, "effort")
+        if effort not in {"low", "medium", "high", "xhigh", "max"}:
+            raise ArtifactError(
+                "'effort' must be low, medium, high, xhigh, or max"
+            )
+        if (
+            task["project_id"] == "classhub"
+            and model == "gpt-5.6-sol"
+        ):
+            raise ArtifactError(
+                "ClassHub managed tasks must use Luna or Terra, not Sol"
+            )
+    if task["schema_version"] == SCHEMA_VERSION:
+        task_kind = require_string(task, "task_kind")
+        if task_kind not in {"implementation", "investigation"}:
+            raise ArtifactError("'task_kind' must be implementation or investigation")
     for field in TASK_LIST_FIELDS:
         require_string_list(
             task,
@@ -207,6 +235,10 @@ def validate_task(task: dict[str, Any], source: Path | None = None) -> None:
     require_string_list(authority, "external_actions", allow_empty=True)
     if authority["commit"] and not authority["edit"]:
         raise ArtifactError("'authority.commit' requires 'authority.edit'")
+    if task_kind_of(task) == "investigation" and (
+        authority["edit"] or authority["commit"]
+    ):
+        raise ArtifactError("investigation tasks must not grant edit or commit authority")
     for field in ("owns", "does_not_own"):
         for pattern in task[field]:
             require_repository_path(pattern, field)
@@ -277,19 +309,21 @@ def validate_handoff(handoff: dict[str, Any]) -> None:
         "questions",
         "dependencies",
     }
+    if handoff.get("schema_version") == SCHEMA_VERSION:
+        required.add("findings")
     require_exact_keys(handoff, required)
     if handoff.get("artifact_type") != "herdr_handoff":
         raise ArtifactError("'artifact_type' must be 'herdr_handoff'")
     validate_identity(handoff)
     result = require_string(handoff, "result")
-    if result not in {"ready", "blocked"}:
-        raise ArtifactError("'result' must be 'ready' or 'blocked'")
+    if result not in {"ready", "blocked", "investigated"}:
+        raise ArtifactError("'result' must be ready, blocked, or investigated")
     for field in ("base_revision", "revision"):
         revision = require_string(handoff, field)
         if not REVISION_PATTERN.fullmatch(revision):
             raise ArtifactError(f"'{field}' must be a full 40- or 64-character Git hash")
     changed_files = require_string_list(
-        handoff, "changed_files", allow_empty=result == "blocked"
+        handoff, "changed_files", allow_empty=result in {"blocked", "investigated"}
     )
     for changed_file in changed_files:
         require_repository_path(changed_file, "changed_files")
@@ -298,8 +332,17 @@ def validate_handoff(handoff: dict[str, Any]) -> None:
     )
     require_string_list(handoff, "questions", allow_empty=True)
     require_string_list(handoff, "dependencies", allow_empty=True)
-    if result == "ready" and not evidence_paths:
-        raise ArtifactError("a ready handoff must reference evidence")
+    findings = handoff.get("findings", [])
+    if handoff.get("schema_version") == SCHEMA_VERSION:
+        require_string_list(
+            handoff,
+            "findings",
+            allow_empty=result != "investigated",
+        )
+    if result in {"ready", "investigated"} and not evidence_paths:
+        raise ArtifactError("a completed handoff must reference evidence")
+    if result == "investigated" and not findings:
+        raise ArtifactError("an investigated handoff must contain findings")
 
 
 def validate_decision(decision: dict[str, Any]) -> None:
@@ -343,6 +386,8 @@ def validate_decision(decision: dict[str, Any]) -> None:
     validate_task(task, task_path)
     handoff = read_json(handoff_path)
     validate_handoff(handoff)
+    if decision["schema_version"] != task["schema_version"]:
+        raise ArtifactError("decision schema_version must match the task contract")
     if not identity_matches(task, decision) or not identity_matches(task, handoff):
         raise ArtifactError("decision task and handoff identity must match")
     if decision["decision"] == "ACCEPT":
@@ -374,8 +419,13 @@ def validate_root_verification(verification: dict[str, Any]) -> None:
     if verification.get("artifact_type") != "herdr_root_verification":
         raise ArtifactError("'artifact_type' must be 'herdr_root_verification'")
     validate_identity(verification)
-    if require_string(verification, "phase") not in {"candidate", "integrated"}:
-        raise ArtifactError("'phase' must be candidate or integrated")
+    phase = require_string(verification, "phase")
+    if phase not in {
+        "candidate",
+        "integrated",
+        "investigation",
+    }:
+        raise ArtifactError("'phase' must be candidate, integrated, or investigation")
     if require_string(verification, "result") not in {"pass", "fail"}:
         raise ArtifactError("'result' must be pass or fail")
     for field in ("base_revision", "revision"):
@@ -388,7 +438,11 @@ def validate_root_verification(verification: dict[str, Any]) -> None:
         raise ArtifactError("'worktree' must be absolute")
     checked_at = require_string(verification, "checked_at")
     require_iso8601_utc(checked_at, "checked_at")
-    changed_files = require_string_list(verification, "changed_files")
+    changed_files = require_string_list(
+        verification,
+        "changed_files",
+        allow_empty=phase == "investigation",
+    )
     for changed_file in changed_files:
         require_repository_path(changed_file, "changed_files")
     diff_digest = require_string(verification, "diff_digest")
@@ -489,10 +543,13 @@ def render_prompt(task: dict[str, Any], task_path: Path) -> str:
             "",
             f"project_id: {task['project_id']}",
             f"task_id: {task['task_id']}",
+            f"task_kind: {task_kind_of(task)}",
             f"repository: {task['repository']}",
             f"target_branch: {task['target_branch']}",
             f"base_revision: {task['base_revision']}",
             f"lane: {task['lane']}",
+            f"model: {task.get('model', 'legacy-unrecorded')}",
+            f"effort: {task.get('effort', 'legacy-unrecorded')}",
             f"workspace: {task['workspace']}",
             f"owner: {task['owner']}",
             "",
@@ -527,6 +584,8 @@ def render_prompt(task: dict[str, Any], task_path: Path) -> str:
             f"- network: {str(authority['network']).lower()}",
             "- external actions: "
             + (", ".join(authority["external_actions"]) or "none"),
+            "- nested delegation: forbidden; do not create agents, subagents, "
+            "schedules, or another orchestration hierarchy",
             "",
             "## Done when",
             "",
@@ -542,9 +601,15 @@ def render_prompt(task: dict[str, Any], task_path: Path) -> str:
             "",
             "## Completion contract",
             "",
-            "Return one `herdr_handoff` artifact for this exact project_id and "
-            "task_id. Include the full base and candidate revisions, changed "
-            "files, evidence artifact paths, questions, and unfinished dependencies. "
+            (
+                "Return one read-only investigation handoff for this exact project_id "
+                "and task_id. Keep revision equal to the locked base, make no source "
+                "change, and include concrete findings plus evidence paths."
+                if task_kind_of(task) == "investigation"
+                else "Return one implementation handoff for this exact project_id and "
+                "task_id. Include the full base and candidate revisions, changed "
+                "files, evidence artifact paths, questions, and unfinished dependencies."
+            ),
             "Status text such as idle or done is not completion evidence.",
             "",
             "Record evidence and construct the handoff with the validated helpers:",
@@ -560,9 +625,22 @@ def render_prompt(task: dict[str, Any], task_path: Path) -> str:
             "",
             f"{helper} handoff-create \\",
             f"  --task {quoted_task} \\",
+            *(
+                ["  --result investigated \\", '  --finding "<concrete finding>" \\']
+                if task_kind_of(task) == "investigation"
+                else []
+            ),
             f"  --base-revision {shlex.quote(task['base_revision'])} \\",
-            '  --revision "<full candidate commit>" \\',
-            '  --changed-file "<changed path>" \\',
+            (
+                f"  --revision {shlex.quote(task['base_revision'])} \\"
+                if task_kind_of(task) == "investigation"
+                else '  --revision "<full candidate commit>" \\'
+            ),
+            *(
+                []
+                if task_kind_of(task) == "investigation"
+                else ['  --changed-file "<changed path>" \\']
+            ),
             f"  --evidence {shlex.quote(str(evidence_path))} \\",
             f"  --output {shlex.quote(str(handoff_path))}",
             "```",
@@ -612,7 +690,10 @@ def verify_repository(repository: Path) -> None:
 
 
 def git_changed_files(repository: Path, base: str, revision: str) -> list[str]:
-    result = git_run(repository, ["diff", "--name-only", "-z", base, revision])
+    result = git_run(
+        repository,
+        ["diff", "--no-renames", "--name-only", "-z", base, revision],
+    )
     if result.returncode:
         raise ArtifactError(f"cannot inspect candidate diff: {result.stderr.strip()}")
     return sorted(item for item in result.stdout.split("\0") if item)
@@ -627,13 +708,21 @@ def semantic_verify_handoff(
 ) -> dict[str, Any]:
     if not identity_matches(task, handoff):
         raise ArtifactError("handoff project_id/task_id does not match the task")
-    if handoff["result"] != "ready":
-        raise ArtifactError("only a ready handoff can pass the acceptance gate")
+    if handoff["schema_version"] != task["schema_version"]:
+        raise ArtifactError("handoff schema_version must match the task contract")
+    task_kind = task_kind_of(task)
+    expected_result = "investigated" if task_kind == "investigation" else "ready"
+    if handoff["result"] != expected_result:
+        raise ArtifactError(
+            f"a {task_kind} task requires a {expected_result} handoff"
+        )
     if handoff["questions"]:
         raise ArtifactError("a ready handoff cannot contain unresolved questions")
     if handoff["dependencies"]:
         raise ArtifactError("a ready handoff cannot contain unfinished dependencies")
-    if not task["authority"]["edit"] or not task["authority"]["commit"]:
+    if task_kind == "implementation" and (
+        not task["authority"]["edit"] or not task["authority"]["commit"]
+    ):
         raise ArtifactError(
             "a ready implementation handoff requires task authority.edit and "
             "authority.commit"
@@ -646,8 +735,10 @@ def semantic_verify_handoff(
     if base != locked_base:
         raise ArtifactError("handoff base_revision does not match the Root-locked task base")
     revision = git_revision(repository, handoff["revision"])
-    if base == revision:
+    if task_kind == "implementation" and base == revision:
         raise ArtifactError("candidate revision is identical to the base revision")
+    if task_kind == "investigation" and base != revision:
+        raise ArtifactError("investigation handoff revision must remain at the locked base")
     ancestry = git_run(repository, ["merge-base", "--is-ancestor", base, revision])
     if ancestry.returncode:
         raise ArtifactError("candidate revision is not a descendant of the recorded base")
@@ -691,6 +782,8 @@ def semantic_verify_handoff(
             raise ArtifactError(
                 f"evidence project_id/task_id does not match the task: {evidence_path}"
             )
+        if evidence["schema_version"] != task["schema_version"]:
+            raise ArtifactError("evidence schema_version must match the task contract")
         evidence_files.append(str(evidence_path))
         for record in evidence["records"]:
             if record["revision"] == revision:
@@ -734,14 +827,13 @@ def verification_argv(command: str) -> list[str]:
         "bin/test-safe",
         "bin/test-parallel",
         "bin/dusk-safe",
-        "vendor/bin/pint",
     }
+    if executable == "vendor/bin/pint":
+        allowed = "--test" in arguments[1:]
     if executable == "composer":
-        allowed = len(arguments) >= 2 and arguments[1].startswith("test")
+        allowed = len(arguments) >= 2 and arguments[1] == "test:dusk"
     if executable == "npm":
-        allowed = (len(arguments) >= 2 and arguments[1] == "test") or (
-            len(arguments) >= 3 and arguments[1:3] == ["run", "build"]
-        )
+        allowed = len(arguments) >= 2 and arguments[1] == "test"
     if not allowed:
         raise ArtifactError(
             "verification command is not an allowed ClassHub safe runner: "
@@ -772,8 +864,14 @@ def root_verify(
     timeout: int,
 ) -> dict[str, Any]:
     candidate = semantic_verify_handoff(task, handoff)
-    if phase not in {"candidate", "integrated"}:
-        raise ArtifactError("phase must be candidate or integrated")
+    task_kind = task_kind_of(task)
+    allowed_phases = (
+        {"investigation"}
+        if task_kind == "investigation"
+        else {"candidate", "integrated"}
+    )
+    if phase not in allowed_phases:
+        raise ArtifactError(f"phase {phase} is invalid for a {task_kind} task")
     if timeout <= 0:
         raise ArtifactError("verification timeout must be positive")
     require_exact_acknowledgements(
@@ -797,7 +895,7 @@ def root_verify(
         raise ArtifactError("verification worktree must be clean before checks")
 
     target_head = git_revision(repository, f"refs/heads/{target}")
-    if phase == "candidate":
+    if phase in {"candidate", "investigation"}:
         if target_head != base:
             raise ArtifactError(
                 "target branch moved after task creation; rebase or recreate the candidate"
@@ -859,7 +957,7 @@ def root_verify(
 
     verification = {
         "artifact_type": "herdr_root_verification",
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": task["schema_version"],
         "project_id": task["project_id"],
         "task_id": task["task_id"],
         "phase": phase,
@@ -882,18 +980,20 @@ def root_verify(
     return verification
 
 
-def verify_root_acceptance(
+def verify_root_verification_evidence(
     task: dict[str, Any],
     handoff: dict[str, Any],
     verification: dict[str, Any],
     *,
-    check_checkout: bool = False,
+    phase: str,
 ) -> None:
     validate_root_verification(verification)
+    if verification["schema_version"] != task["schema_version"]:
+        raise ArtifactError("root verification schema_version must match the task contract")
     if not identity_matches(task, handoff) or not identity_matches(task, verification):
         raise ArtifactError("task, handoff, and root verification identity must match")
-    if verification["phase"] != "integrated" or verification["result"] != "pass":
-        raise ArtifactError("ACCEPT requires a passing integrated root verification")
+    if verification["phase"] != phase or verification["result"] != "pass":
+        raise ArtifactError(f"gate requires a passing {phase} root verification")
     if verification["base_revision"] != task["base_revision"]:
         raise ArtifactError("root verification base does not match the locked task base")
     if verification["revision"] != handoff["revision"]:
@@ -929,7 +1029,101 @@ def verify_root_acceptance(
         if item["output_digest"] != f"sha256:{digest}":
             raise ArtifactError(f"root verification output digest changed: {output_file}")
 
+
+def verify_root_candidate(
+    task: dict[str, Any],
+    handoff: dict[str, Any],
+    verification: dict[str, Any],
+    *,
+    worktree: Path,
+    branch: str,
+) -> None:
+    """Verify a candidate gate against its exact handoff, logs, and checkout."""
+    semantic_verify_handoff(task, handoff)
+    verify_root_verification_evidence(
+        task,
+        handoff,
+        verification,
+        phase="candidate",
+    )
+    expected_worktree = worktree.resolve()
+    if Path(verification["worktree"]).resolve() != expected_worktree:
+        raise ArtifactError("candidate verification used a different task worktree")
+    if git_revision(expected_worktree, "HEAD") != handoff["revision"]:
+        raise ArtifactError("candidate worktree no longer points at the verified revision")
+    status = git_run(expected_worktree, ["status", "--porcelain"])
+    branch_result = git_run(expected_worktree, ["branch", "--show-current"])
+    if (
+        status.returncode
+        or status.stdout.strip()
+        or branch_result.stdout.strip() != branch
+    ):
+        raise ArtifactError("candidate worktree must be clean and on its task branch")
+    repository = Path(task["repository"])
+    if (
+        git_revision(repository, f"refs/heads/{task['target_branch']}")
+        != task["base_revision"]
+    ):
+        raise ArtifactError("target branch moved before candidate acceptance")
+
+
+def verify_root_investigation(
+    task: dict[str, Any],
+    handoff: dict[str, Any],
+    verification: dict[str, Any],
+    *,
+    worktree: Path,
+    branch: str,
+) -> None:
+    """Verify a read-only investigation against its exact clean checkout."""
+    if task_kind_of(task) != "investigation":
+        raise ArtifactError("investigation gate requires an investigation task")
+    semantic_verify_handoff(task, handoff)
+    verify_root_verification_evidence(
+        task,
+        handoff,
+        verification,
+        phase="investigation",
+    )
+    expected_worktree = worktree.resolve()
+    if Path(verification["worktree"]).resolve() != expected_worktree:
+        raise ArtifactError("investigation verification used a different task worktree")
+    if git_revision(expected_worktree, "HEAD") != task["base_revision"]:
+        raise ArtifactError("investigation worktree moved from the locked base")
+    status = git_run(expected_worktree, ["status", "--porcelain"])
+    branch_result = git_run(expected_worktree, ["branch", "--show-current"])
+    if (
+        status.returncode
+        or status.stdout.strip()
+        or branch_result.stdout.strip() != branch
+    ):
+        raise ArtifactError("investigation worktree must be clean and on its task branch")
+    repository = Path(task["repository"])
+    if (
+        git_revision(repository, f"refs/heads/{task['target_branch']}")
+        != task["base_revision"]
+    ):
+        raise ArtifactError("target branch moved before investigation acceptance")
+
+
+def verify_root_acceptance(
+    task: dict[str, Any],
+    handoff: dict[str, Any],
+    verification: dict[str, Any],
+    *,
+    check_checkout: bool = False,
+) -> None:
+    semantic_verify_handoff(task, handoff)
+    phase = "investigation" if task_kind_of(task) == "investigation" else "integrated"
+    verify_root_verification_evidence(
+        task,
+        handoff,
+        verification,
+        phase=phase,
+    )
+
     if check_checkout:
+        repository = Path(task["repository"])
         if (
             git_revision(repository, f"refs/heads/{task['target_branch']}")
             != handoff["revision"]
@@ -952,6 +1146,10 @@ def identity_matches(task: dict[str, Any], artifact: dict[str, Any]) -> bool:
     )
 
 
+def task_kind_of(task: dict[str, Any]) -> str:
+    return task.get("task_kind", "implementation")
+
+
 def command_task_create(args: argparse.Namespace) -> None:
     output = Path(args.output).resolve()
     repository = Path(args.repository).resolve()
@@ -972,6 +1170,9 @@ def command_task_create(args: argparse.Namespace) -> None:
         "target_branch": args.target_branch,
         "base_revision": base_revision,
         "lane": args.lane,
+        "task_kind": args.task_kind,
+        "model": args.model,
+        "effort": args.effort,
         "workspace": args.workspace,
         "owner": args.owner,
         "objective": args.objective,
@@ -1031,7 +1232,7 @@ def command_evidence_add(args: argparse.Namespace) -> None:
     else:
         evidence = {
             "artifact_type": "herdr_evidence",
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": task["schema_version"],
             "project_id": task["project_id"],
             "task_id": task["task_id"],
             "records": [],
@@ -1075,7 +1276,7 @@ def command_handoff_create(args: argparse.Namespace) -> None:
         evidence_paths.append(str(evidence_path))
     handoff = {
         "artifact_type": "herdr_handoff",
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": task["schema_version"],
         "project_id": task["project_id"],
         "task_id": task["task_id"],
         "result": args.result,
@@ -1086,6 +1287,8 @@ def command_handoff_create(args: argparse.Namespace) -> None:
         "questions": args.question,
         "dependencies": args.dependency,
     }
+    if task["schema_version"] == SCHEMA_VERSION:
+        handoff["findings"] = args.finding
     validate_handoff(handoff)
     output = Path(args.output).resolve()
     write_json(output, handoff)
@@ -1152,7 +1355,7 @@ def command_decision_create(args: argparse.Namespace) -> None:
         raise ArtifactError("ACCEPT requires --root-verification")
     decision = {
         "artifact_type": "herdr_decision",
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": task["schema_version"],
         "project_id": handoff["project_id"],
         "task_id": handoff["task_id"],
         "task": str(task_path),
@@ -1186,6 +1389,21 @@ def build_parser() -> argparse.ArgumentParser:
     task_parser.add_argument("--base-revision", required=True)
     task_parser.add_argument(
         "--lane", choices=("tiny", "normal", "high-risk"), required=True
+    )
+    task_parser.add_argument(
+        "--task-kind",
+        choices=("implementation", "investigation"),
+        default="implementation",
+    )
+    task_parser.add_argument(
+        "--model",
+        choices=("gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"),
+        required=True,
+    )
+    task_parser.add_argument(
+        "--effort",
+        choices=("low", "medium", "high", "xhigh", "max"),
+        required=True,
     )
     task_parser.add_argument("--workspace", required=True)
     task_parser.add_argument("--owner", required=True)
@@ -1233,13 +1451,18 @@ def build_parser() -> argparse.ArgumentParser:
         "handoff-create", help="create a commit-addressed handoff"
     )
     handoff_parser.add_argument("--task", required=True)
-    handoff_parser.add_argument("--result", choices=("ready", "blocked"), default="ready")
+    handoff_parser.add_argument(
+        "--result",
+        choices=("ready", "blocked", "investigated"),
+        default="ready",
+    )
     handoff_parser.add_argument("--base-revision", required=True)
     handoff_parser.add_argument("--revision", required=True)
     handoff_parser.add_argument("--changed-file", action="append", default=[])
     handoff_parser.add_argument("--evidence", action="append", default=[])
     handoff_parser.add_argument("--question", action="append", default=[])
     handoff_parser.add_argument("--dependency", action="append", default=[])
+    handoff_parser.add_argument("--finding", action="append", default=[])
     handoff_parser.add_argument("--output", required=True)
     handoff_parser.set_defaults(handler=command_handoff_create)
 
@@ -1260,7 +1483,9 @@ def build_parser() -> argparse.ArgumentParser:
     root_verify_parser.add_argument("--handoff", required=True)
     root_verify_parser.add_argument("--worktree", required=True)
     root_verify_parser.add_argument(
-        "--phase", choices=("candidate", "integrated"), required=True
+        "--phase",
+        choices=("candidate", "integrated", "investigation"),
+        required=True,
     )
     root_verify_parser.add_argument(
         "--requirement-checked", action="append", required=True

@@ -1,14 +1,15 @@
 # Engineering Chief of Staff
 
 This repository is the orchestration home for engineering work. The default
-target project is ClassHub at `/Users/danhloi/work/classhub`.
+target project is the sibling checkout `../classhub`. If ClassHub lives
+elsewhere, use `CLASSHUB_REPOSITORY` or the CLI `--repository` option.
 
 ## Mandatory startup
 
-1. Read `HERDR_ORCHESTRATOR.md` in full before any Herdr operation.
+1. Read `PASEO_ORCHESTRATOR.md` in full before any managed-agent operation.
 2. For ClassHub work, read `herdr-orchestrator/projects/classhub.md` in full.
-3. Read `/Users/danhloi/work/classhub/AGENTS.md` before inspecting, planning,
-   delegating, editing, or verifying ClassHub.
+3. Resolve the ClassHub checkout as described above and read its `AGENTS.md`
+   before inspecting, planning, delegating, editing, or verifying ClassHub.
 4. Load only the additional ClassHub rules and specs routed by those files.
 
 ## Default operating contract
@@ -18,13 +19,27 @@ target project is ClassHub at `/Users/danhloi/work/classhub`.
   integration, cleanup, and the final business-level report.
 - Managed agents receive bounded, self-contained work. They do not inherit the
   root conversation or authority.
-- Use Herdr as the only managed-agent control plane. Do not create a second
-  nested agent hierarchy inside a Herdr-managed worker.
-- Use one writer first. Add a read-only reviewer only for high-risk work or a
-  concrete specialist risk. Use the ClassHub `po` role before implementation
-  whenever ClassHub policy requires product decisions to be locked.
+- ClassHub writer tasks use only explicit `gpt-5.6-luna` or
+  `gpt-5.6-terra` routes. Use Luna first for bounded work and increase it through
+  `high`, `xhigh`, or `max` before considering Terra. Sol is not permitted for
+  any managed ClassHub task and is never an implicit subagent default.
+- Use Paseo as the only managed-worker control plane. Root is normally the
+  external Codex CLI opened in this repository; workers may not create a
+  second nested agent hierarchy.
+- The minimal release launches exactly one managed worker per task. It supports
+  implementation and read-only investigation for `tiny` and `normal` lanes.
+  Stop and ask the user before any `high-risk` ClassHub task; reviewer and PO
+  governance are deliberately deferred instead of being simulated.
+- Also stop before a new or changed ClassHub spec because the repository
+  requires a PO agent for that decision; the one-worker MVP supports features
+  only when the governing product behavior is already locked.
+- For ClassHub browser verification, Root uses the repository's Laravel Dusk
+  suite through `bin/dusk-safe`. The minimal release does not launch a separate
+  browser tester.
 - Concurrent writers always use separate Git worktrees and non-overlapping
   ownership.
+- Keep at most four genuinely required managed roles visible for one task in
+  Paseo. Never launch agents merely to fill a dashboard.
 - Implementation authority permits repository-local edits, focused tests, and
   a local candidate commit in a task-created worktree. It never implies push,
   deploy, pull-request creation, production data changes, or unsafe test

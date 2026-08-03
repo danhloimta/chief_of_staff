@@ -55,13 +55,15 @@ class TaskCtlTest(unittest.TestCase):
         self.task_path = self.root / "ledger" / "task.json"
         self.task = {
             "artifact_type": "herdr_task",
-            "schema_version": 2,
+            "schema_version": 3,
             "project_id": "classhub",
             "task_id": "feature-fix",
             "repository": str(self.repository),
             "target_branch": "main",
             "base_revision": self.base,
             "lane": "normal",
+            "model": "gpt-5.6-terra",
+            "effort": "medium",
             "workspace": "classhub-feature-fix",
             "owner": "writer",
             "objective": "Fix the feature",
@@ -106,7 +108,7 @@ class TaskCtlTest(unittest.TestCase):
         evidence_path = self.root / "ledger" / "evidence.json"
         evidence = {
             "artifact_type": "herdr_evidence",
-            "schema_version": 2,
+            "schema_version": 3,
             "project_id": "classhub",
             "task_id": "feature-fix",
             "records": [
@@ -133,7 +135,7 @@ class TaskCtlTest(unittest.TestCase):
     ) -> dict:
         return {
             "artifact_type": "herdr_handoff",
-            "schema_version": 2,
+            "schema_version": 3,
             "project_id": "classhub",
             "task_id": "feature-fix",
             "result": "ready",
@@ -155,6 +157,37 @@ class TaskCtlTest(unittest.TestCase):
 
         self.assertEqual(result["changed_files"], ["src/feature.txt"])
         self.assertEqual(result["revision"], revision)
+
+    def test_classhub_normal_task_contract_rejects_sol(self) -> None:
+        task = dict(self.task)
+        task["model"] = "gpt-5.6-sol"
+
+        with self.assertRaisesRegex(taskctl.ArtifactError, "managed tasks"):
+            taskctl.validate_task(task, self.task_path)
+
+    def test_classhub_high_risk_task_contract_also_rejects_sol(self) -> None:
+        task = dict(self.task)
+        task["lane"] = "high-risk"
+        task["model"] = "gpt-5.6-sol"
+        task["effort"] = "max"
+
+        with self.assertRaisesRegex(taskctl.ArtifactError, "managed tasks"):
+            taskctl.validate_task(task, self.task_path)
+
+    def test_luna_max_task_contract_is_valid(self) -> None:
+        task = dict(self.task)
+        task["model"] = "gpt-5.6-luna"
+        task["effort"] = "max"
+
+        taskctl.validate_task(task, self.task_path)
+
+    def test_legacy_v2_task_remains_valid_for_active_work(self) -> None:
+        task = dict(self.task)
+        task["schema_version"] = 2
+        task.pop("model")
+        task.pop("effort")
+
+        taskctl.validate_task(task, self.task_path)
 
     def test_worker_cannot_move_locked_base_to_hide_forbidden_change(self) -> None:
         forbidden = self.writer / "config" / "unsafe.php"
@@ -203,6 +236,23 @@ class TaskCtlTest(unittest.TestCase):
         self.assertEqual(verification["result"], "pass")
         output = Path(verification["commands"][0]["output_file"]).read_text()
         self.assertIn("root-owned test ran", output)
+
+        taskctl.verify_root_candidate(
+            self.task,
+            handoff,
+            verification,
+            worktree=self.writer,
+            branch="agent/feature-fix",
+        )
+        verification["revision"] = self.base
+        with self.assertRaisesRegex(taskctl.ArtifactError, "revision"):
+            taskctl.verify_root_candidate(
+                self.task,
+                handoff,
+                verification,
+                worktree=self.writer,
+                branch="agent/feature-fix",
+            )
 
     def test_worker_claimed_pass_cannot_override_root_test_failure(self) -> None:
         revision = self.make_candidate()
@@ -292,6 +342,132 @@ class TaskCtlTest(unittest.TestCase):
             taskctl.verification_argv("php artisan dusk")
         with self.assertRaises(taskctl.ArtifactError):
             taskctl.verification_argv("bin/test-safe tests/Foo; rm -rf data")
+        for command in (
+            "vendor/bin/pint",
+            "composer test:any-arbitrary-script",
+            "npm run build",
+        ):
+            with self.subTest(command=command):
+                with self.assertRaisesRegex(taskctl.ArtifactError, "safe runner"):
+                    taskctl.verification_argv(command)
+
+        self.assertEqual(
+            taskctl.verification_argv("vendor/bin/pint --test"),
+            ["vendor/bin/pint", "--test"],
+        )
+
+    def test_rename_checks_both_source_and_destination_scope(self) -> None:
+        protected = self.writer / "AGENTS.md"
+        destination = self.writer / "src" / "moved.txt"
+        self.git(self.writer, "mv", str(protected), str(destination))
+        self.git(self.writer, "commit", "-qm", "rename protected file")
+        revision = self.git(self.writer, "rev-parse", "HEAD").stdout.strip()
+        handoff = self.make_handoff(
+            revision,
+            self.make_evidence(revision),
+            ["AGENTS.md", "src/moved.txt"],
+        )
+        task = dict(self.task)
+        task["does_not_own"] = [*self.task["does_not_own"], "AGENTS.md"]
+
+        with self.assertRaisesRegex(
+            taskctl.ArtifactError, "outside owns|does_not_own"
+        ):
+            taskctl.semantic_verify_handoff(task, handoff)
+
+    def test_read_only_investigation_requires_findings_and_no_commit(self) -> None:
+        task = dict(self.task)
+        task.update(
+            {
+                "schema_version": taskctl.SCHEMA_VERSION,
+                "task_kind": "investigation",
+                "authority": {
+                    "edit": False,
+                    "commit": False,
+                    "network": False,
+                    "external_actions": [],
+                },
+            }
+        )
+        evidence = self.make_evidence(self.base)
+        evidence_value = taskctl.read_json(evidence)
+        evidence_value["schema_version"] = taskctl.SCHEMA_VERSION
+        taskctl.write_json(evidence, evidence_value)
+        handoff = {
+            "artifact_type": "herdr_handoff",
+            "schema_version": taskctl.SCHEMA_VERSION,
+            "project_id": task["project_id"],
+            "task_id": task["task_id"],
+            "result": "investigated",
+            "base_revision": self.base,
+            "revision": self.base,
+            "changed_files": [],
+            "evidence": [str(evidence)],
+            "questions": [],
+            "dependencies": [],
+            "findings": ["The focused fixture exposes one reproducible defect."],
+        }
+
+        verification = taskctl.root_verify(
+            task,
+            handoff,
+            worktree=self.writer,
+            phase="investigation",
+            requirements_checked=task["requirements"],
+            done_when_checked=task["done_when"],
+            output_dir=self.root / "investigation-logs",
+            timeout=10,
+        )
+
+        self.assertEqual(verification["result"], "pass")
+        taskctl.verify_root_investigation(
+            task,
+            handoff,
+            verification,
+            worktree=self.writer,
+            branch="agent/feature-fix",
+        )
+        taskctl.verify_root_acceptance(task, handoff, verification)
+
+    def test_investigated_handoff_is_exposed_by_cli_parser(self) -> None:
+        args = taskctl.build_parser().parse_args(
+            [
+                "handoff-create",
+                "--task",
+                str(self.task_path),
+                "--result",
+                "investigated",
+                "--base-revision",
+                self.base,
+                "--revision",
+                self.base,
+                "--finding",
+                "One concrete finding",
+                "--output",
+                str(self.root / "ledger" / "investigation-handoff.json"),
+            ]
+        )
+
+        self.assertEqual(args.result, "investigated")
+
+    def test_focused_dusk_safe_command_is_allowed(self) -> None:
+        command = (
+            "bin/dusk-safe tests/Browser/Invoice/InvoiceShowFlowTest.php "
+            "--filter=test_owner_can_view_invoice_detail"
+        )
+
+        self.assertEqual(
+            taskctl.verification_argv(command),
+            [
+                "bin/dusk-safe",
+                "tests/Browser/Invoice/InvoiceShowFlowTest.php",
+                "--filter=test_owner_can_view_invoice_detail",
+            ],
+        )
+
+    def test_direct_artisan_dusk_command_with_test_is_rejected(self) -> None:
+        with self.assertRaisesRegex(taskctl.ArtifactError, "safe runner"):
+            taskctl.verification_argv("php artisan dusk tests/Browser/FooTest.php")
 
     def test_ungated_accept_command_is_rejected(self) -> None:
         revision = self.make_candidate()

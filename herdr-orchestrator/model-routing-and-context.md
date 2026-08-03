@@ -26,42 +26,65 @@ catalog and `/status` for the effective Codex session budget. Always specify
 both model and effort at launch; a global default can otherwise change cost and
 behavior without appearing in the task prompt.
 
+## Cost-first routing rule
+
+For managed agents, choose the cheapest route that can satisfy the same
+Definition of Done. Increase effort before changing model:
+
+```text
+Luna low -> Luna medium -> Luna high -> Luna xhigh -> Luna max
+  -> Terra medium/high/max only when the work shape requires judgment
+```
+
+Do not advance through every step mechanically. Start at the appropriate point
+for the work shape, and escalate only after a concrete failure shows that the
+contract and context are adequate but the current route is insufficient.
+
+Sol is Root-only for ClassHub. No managed ClassHub subagent may launch Sol
+unless the user explicitly changes this policy for a named task. File count, a
+`high-risk` lane, or a long checklist never justifies a stronger model; use
+Luna `max` and strengthen verification for bounded quality-sensitive work.
+
 ## Route by work shape
 
 | Work shape | Starting model | Starting effort | Examples |
 | --- | --- | --- | --- |
 | Clear, repeatable, high-volume | `gpt-5.6-luna` | `low` or `medium` | extraction, classification, transformation, structured summary, mechanical checklist |
-| Everyday agentic work | `gpt-5.6-terra` | `medium` | repository mapping, read-heavy scans, documentation, bounded implementation |
-| Complex, ambiguous, or high-value | `gpt-5.6-sol` | `medium` or `high` | orchestration, architecture, cross-cutting change, difficult debugging, security review |
+| Normal bounded implementation | `gpt-5.6-luna` | `max` | focused bug fix, documented feature, tests, repository-local documentation |
+| Quality-sensitive bounded work | `gpt-5.6-luna` | `max` | billing/UI implementation, fixed review checklist, focused Dusk gate |
+| Ambiguous or architecture-heavy managed work | `gpt-5.6-terra` | `high` or `max` | product judgment, broad investigation, cross-subsystem design, novel risk search |
+| Root orchestration | `gpt-5.6-sol` | `medium` or `high` | decomposition, integration judgment, final acceptance |
 
 Default roles:
 
 | Role | Model and effort | Escalate when |
 | --- | --- | --- |
-| Orchestrator | Sol `medium` | architecture or integration judgment requires Sol `high` |
-| Explorer | Terra `low` or `medium` | discovery becomes ambiguous or requires a design decision |
-| Routine bounded writer | Terra `medium` | work crosses subsystem contracts or becomes high risk |
-| Complex writer | Sol `high` | use `xhigh` or `max` only after a representative evaluation shows a material gain |
-| Independent correctness or security reviewer | Sol `high` | use `max` only for an exceptional quality-first case with a clear evaluation contract |
-| Mechanical acceptance gate | Luna `medium`; Luna `high` for a long or subtle fixed checklist | unexpected behavior requires open-ended investigation |
+| Root Orchestrator | Sol `medium` | architecture or integration judgment requires Sol `high` |
+| Explorer | Luna `medium` | use Luna `high/max` for a broad but bounded scan; Terra only when synthesis needs judgment |
+| Mechanical bounded writer | Luna `high` | raise to Luna `max` when correctness matters more than latency |
+| Routine bounded writer | Luna `max` | Terra only for demonstrated ambiguity, architecture, or a reasoning-capability mismatch |
+| Independent checklist reviewer | Luna `max` | Terra `high/max` only for novel, open-ended correctness or security discovery |
+| Dusk/browser tester | Luna `max` | Terra `medium/high` only for bounded exploratory judgment |
+| PO or architecture specialist | Terra `high` or `max` | return a locked decision; never self-escalate to Sol |
+| Mechanical acceptance gate | Luna `medium`; Luna `max` for a long or subtle fixed checklist | unexpected behavior requires open-ended judgment |
 
 Concrete routing examples:
 
 ```text
 Find every installer entry point and return paths and symbols.
-  -> Terra medium
+  -> Luna high
 
 Implement one documented CLI flag in two files with focused tests.
-  -> Terra medium
+  -> Luna max
 
 Redesign recovery across installer, updater, state storage, and rollback.
-  -> Sol high
+  -> Terra max because the work itself requires cross-subsystem design
 
 Extract pass/fail results for 80 explicit acceptance criteria.
-  -> Luna medium
+  -> Luna max
 
 Look for security failures the acceptance checklist did not anticipate.
-  -> Sol high
+  -> Terra max with read-only authority; never Sol for a managed ClassHub agent
 ```
 
 If `rg`, `jq`, Git, or a test runner can produce the exact answer
@@ -76,10 +99,13 @@ remains.
 - `medium`: normal default for Terra and Luna, and the balanced starting point
   for Sol.
 - `high`: complex logic, multiple sources or subsystems, security review,
-  difficult edge cases, or important validation.
-- `xhigh` and `max`: evaluation-only escalation for the hardest single-agent
-  work. Do not infer that a long checklist needs `max`; clarity and difficulty
-  are different properties.
+  difficult edge cases, or important validation. Prefer Luna `high` when the
+  contract is bounded.
+- `xhigh`: an intermediate Luna escalation when `high` is insufficient but
+  latency still matters.
+- `max`: the default for normal and high-risk bounded ClassHub subagents when
+  quality matters more than latency. It is allowed for Luna and Terra. More
+  effort still does not repair missing context or an underspecified contract.
 - `ultra`: prohibited inside a Herdr-managed Codex pane unless the user
   explicitly chooses nested orchestration for a named experiment.
 
@@ -95,11 +121,11 @@ bounded experiment; never nest both orchestration strategies by default.
 ## Launch and verify explicitly
 
 ```bash
-# Routine bounded work
-codex -m gpt-5.6-terra -c 'model_reasoning_effort="medium"'
+# Routine bounded implementation
+codex -m gpt-5.6-luna -c 'model_reasoning_effort="max"'
 
-# Complex implementation or independent judgment-heavy review
-codex -m gpt-5.6-sol -c 'model_reasoning_effort="high"'
+# Ambiguous or architecture-heavy managed work
+codex -m gpt-5.6-terra -c 'model_reasoning_effort="max"'
 
 # Clear repeatable extraction or mechanical gate
 codex -m gpt-5.6-luna -c 'model_reasoning_effort="medium"'
@@ -109,6 +135,11 @@ After readiness, read the startup footer once. Confirm the actual model and
 effort before delegation, then report separate `model` and `effort` metadata
 tokens as described in `agent-lifecycle.md`. If the requested model is missing
 or a fallback launched, stop that delegation and surface the mismatch.
+
+For ClassHub, the normal writer launcher accepts only explicit Luna or Terra.
+The task contract is the routing authority: never silently substitute Sol or a
+family alias. Defaults are Luna `medium` for `tiny` and Luna `max` for both
+`normal` and bounded `high-risk` work.
 
 Do not use GPT-5.4, GPT-5.3, older models, or a family alias for managed agents
 unless the user changes this policy. Explicit family member slugs keep routing
@@ -250,11 +281,11 @@ representative tasks with the same prompt, checkout, acceptance criteria, and
 verification:
 
 ```text
-routine exploration: Terra medium vs Sol medium
-bounded implementation: Terra medium vs Sol medium
-complex implementation: Sol medium vs Sol high
-fixed gate: Luna medium vs Luna high
-exceptional hard case: Sol high vs Sol xhigh/max
+routine exploration: Luna medium vs Luna high
+mechanical implementation: Luna high vs Luna max
+bounded implementation: Luna max vs Terra high
+fixed gate: Luna high vs Luna max
+architecture-heavy managed case: Luna max vs Terra max
 ```
 
 Measure acceptance success, correction turns, wall time, model usage, context

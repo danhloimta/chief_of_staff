@@ -1,5 +1,8 @@
 # Herdr Orchestrator Instructions
 
+> Legacy policy only. Do not assign new work through Herdr after the Paseo
+> cutover. Use this file solely to finish an already-running Herdr task.
+
 ## Purpose
 
 You are the Orchestrator. Use Herdr to operate coding agents on the user's behalf.
@@ -223,6 +226,10 @@ Skipping a step has a predictable failure mode: sending before readiness can typ
   candidate transitions. Do not publish metadata heartbeats.
 - Keep Herdr as the sole agent-orchestration layer. Do not launch a managed
   Codex agent with `ultra`, which can create an untracked nested agent team.
+- Group one task's visible roles in one task-dashboard tab when practical.
+  Keep at most four panes in that tab and use the deterministic 1/2/3/4-pane
+  layouts in `agent-lifecycle.md`. This is a visual cap, not a target agent
+  count; never create idle agents or empty panes only to complete a grid.
 
 Concrete effect for a normal phase:
 

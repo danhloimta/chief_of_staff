@@ -43,9 +43,10 @@ writer is still changing files, must hold a different checkout state, or needs
 isolation for a concrete risky command. State that reason in the resource
 ledger. Do not create two review worktrees by default for "behavior" and
 "security"; give one capable reviewer both named acceptance areas, or reserve
-one Luna `medium` or `high` phase gate for a mechanical fixed acceptance
-checklist. Use Sol `high` when review requires discovering unanticipated
-correctness or security problems. Follow `model-routing-and-context.md`.
+one Luna `max` phase gate for a mechanical fixed acceptance checklist. Use
+Terra `high` or `max` only when review requires novel, open-ended correctness
+or security judgment. Never use Sol for a managed ClassHub reviewer. Follow
+`model-routing-and-context.md`.
 
 Keep the writer and reviewer panes alive through corrections. Reuse them with a
 direct follow-up that names the new commit and the exact failed or closed
@@ -101,18 +102,19 @@ herdr agent start api-writer \
   --workspace '<api-workspace-id>' \
   --cwd '<api-worktree-path>' \
   --no-focus \
-  -- codex -m gpt-5.6-terra -c 'model_reasoning_effort="medium"'
+  -- codex -m gpt-5.6-luna -c 'model_reasoning_effort="max"'
 
 herdr agent start docs-writer \
   --workspace '<docs-workspace-id>' \
   --cwd '<docs-worktree-path>' \
   --no-focus \
-  -- codex -m gpt-5.6-terra -c 'model_reasoning_effort="medium"'
+  -- codex -m gpt-5.6-luna -c 'model_reasoning_effort="max"'
 ```
 
-These examples use the routine default. Route complex open-ended work to Sol
-`high` and clear repeatable gates to Luna `medium` or `high` as defined in
-`model-routing-and-context.md`.
+These examples use the Luna-first routine default. Keep bounded work on Luna
+through `max`; use Terra only for demonstrated ambiguity or architecture-heavy
+judgment as defined in `model-routing-and-context.md`. Never route a managed
+ClassHub writer to Sol.
 
 For each returned agent:
 

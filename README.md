@@ -2,7 +2,7 @@
 
 Repo này là nơi chạy root agent điều phối công việc kỹ thuật cho ClassHub. Anh
 giao một yêu cầu ở mức nghiệp vụ; root agent đọc policy của ClassHub, phân loại
-rủi ro, điều phối writer/reviewer qua Herdr, kiểm tra candidate và trả lại một
+rủi ro, điều phối một worker qua Paseo, kiểm tra kết quả và trả lại một
 báo cáo ngắn.
 
 ## Phạm vi MVP
@@ -12,7 +12,7 @@ MVP hỗ trợ:
 - chuẩn bị task contract và prompt có scope/authority rõ ràng;
 - dùng ClassHub `bin/harness` làm durable record cho intake, story, decision và
   trace;
-- writer làm việc trong Git worktree riêng qua Herdr;
+- writer làm việc trong Git worktree riêng do Chief tạo và Paseo quản lý agent;
 - evidence và handoff gắn với đúng project/task/commit;
 - Root khóa target branch/base trước khi giao việc; worker không được tự chọn;
 - gate kiểm tra Git ancestry, file thực tế, `owns`, `does_not_own` và whitespace;
@@ -21,24 +21,48 @@ MVP hỗ trợ:
 - sau khi candidate pass, Root fast-forward vào target branch và chạy lại toàn
   bộ verification trước khi `ACCEPT`;
 - root agent gửi correction cho cùng writer hoặc ghi `ACCEPT/REVISE/WAIT`;
+- investigation chỉ đọc để tìm bug và trả findings, không sửa code hoặc tạo commit;
 - báo cáo cho người dùng theo ngôn ngữ nghiệp vụ của ClassHub.
 
 Root Codex vẫn là orchestration engine: nó đọc yêu cầu, lựa chọn context và gọi
-Herdr. `chiefctl` cung cấp các thao tác deterministic để tránh ghép task và gate
+Paseo. `chiefctl` cung cấp các thao tác deterministic để tránh ghép task và gate
 bằng tay; nó không phải một daemon hay một bộ lập lịch độc lập.
 
 ## Khởi động
 
-Root Codex phải được mở trong một Herdr-managed pane với working directory là
-repo này để Codex tự nạp `AGENTS.md`.
+Mở Root Codex CLI trực tiếp trong repo này để Codex tự nạp `AGENTS.md`:
 
-Kiểm tra các thành phần cục bộ mà không điều khiển Herdr:
+```bash
+cd ~/work/chief_of_staff
+codex
+```
+
+Trên máy mới, clone repo này và đặt checkout ClassHub cạnh nó:
+
+```text
+~/work/chief_of_staff
+~/work/classhub
+```
+
+Nếu ClassHub nằm ở nơi khác, cấu hình trước khi mở Codex:
+
+```bash
+export CLASSHUB_REPOSITORY=/absolute/path/to/classhub
+cd /absolute/path/to/chief_of_staff
+codex
+```
+
+Máy cần Git, Python 3, Codex CLI và Paseo CLI `0.2.5`; Paseo daemon phải đang
+chạy và có các route Luna/Terra. Chạy `bin/chiefctl doctor --live` để xác nhận
+toàn bộ dependency và đường dẫn trước khi giao task.
+
+Kiểm tra các thành phần cục bộ mà không tạo agent:
 
 ```bash
 bin/chiefctl doctor
 ```
 
-Trong Herdr-managed root pane, chạy mandatory live preflight:
+Khi Paseo daemon đang chạy, Root chạy mandatory live preflight:
 
 ```bash
 bin/chiefctl doctor --live
@@ -51,7 +75,13 @@ Sửa lỗi số buổi còn lại hiển thị sai khi học viên đổi gói 
 ```
 
 Root agent sẽ tự thực hiện intake, đọc đúng spec/rules, quyết định topology,
-tạo task contract, điều phối qua Herdr và đóng quality gate trước khi báo cáo.
+tạo task contract, điều phối worker qua Paseo và đóng quality gate trước khi báo cáo.
+
+Paseo hiển thị các agent thật của task; hệ thống không tạo thêm agent chỉ để
+lấp dashboard và giới hạn tối đa bốn role thực sự cần thiết.
+
+Browser gate của ClassHub do Root chạy bằng Laravel Dusk qua `bin/dusk-safe`.
+MVP không tạo browser tester riêng và không dùng Realbrowser.
 
 ## Chuẩn bị contract bằng CLI
 
@@ -60,7 +90,8 @@ Root agent có thể tạo contract và rendered prompt bằng:
 ```bash
 bin/chiefctl prepare-classhub \
   --task-id session-package-remaining \
-  --lane high-risk \
+  --lane normal \
+  --task-kind implementation \
   --objective "Correct remaining-session behavior after a package change" \
   --context "The class student list can show a stale remaining-session count" \
   --requirement "Show the current package remaining-session count" \
@@ -71,6 +102,20 @@ bin/chiefctl prepare-classhub \
   --verification 'bin/test-safe tests/Feature/SessionPackage' \
   --done-when "The relevant business regression is covered and passes"
 ```
+
+`prepare-classhub` ghi model và effort vào contract. Mặc định: `tiny` dùng
+Luna `medium`; `normal` dùng Luna `max`.
+Có thể chỉnh bằng `--model gpt-5.6-luna|gpt-5.6-terra` và
+`--effort low|medium|high|xhigh|max`; mọi managed task ClassHub chủ động chặn
+Sol. Terra chỉ dùng khi task cần judgment/kiến trúc rõ ràng hoặc Luna không đủ
+năng lực sau một correction có evidence. MVP chủ động từ chối `high-risk` cho
+đến khi reviewer/PO governance được triển khai thật.
+Task mới dùng artifact schema v4; các artifact v2/v3 đang chạy vẫn được đọc để
+hoàn tất an toàn nhưng không được dùng làm mẫu cho task mới.
+
+Để chỉ tìm bug mà không sửa code, Root dùng `--task-kind investigation`.
+Investigator phải giữ nguyên locked revision, trả findings có evidence và Root
+tự tái hiện trước khi chấp nhận báo cáo.
 
 Artifacts được ghi dưới `.runtime/classhub/<task-id>/` và không đi vào source
 control. Trước khi giao writer, root phải ghi intake vào ClassHub harness và bổ
@@ -102,7 +147,7 @@ python3 herdr-orchestrator/taskctl.py root-verify \
 
 Candidate pass vẫn chưa phải hoàn thành. Root phải xác nhận target branch còn ở
 locked base, checkout sạch, fast-forward tới candidate và chạy lại cùng lệnh với
-`--phase integrated` trên `/Users/danhloi/work/classhub`. `decision-create
+`--phase integrated` trên checkout ClassHub đã resolve. `decision-create
 --decision ACCEPT` bắt buộc tham chiếu integrated Root verification này.
 
 Root vẫn phải trực tiếp đọc diff, đối chiếu spec và kiểm tra tác động

@@ -151,6 +151,73 @@ rows = [
 Keep `state_icon`, canonical agent identity, branch, and Git status available.
 Metadata improves navigation and recovery; it is never acceptance evidence.
 
+## Task dashboard layout: at most four panes
+
+Group the visible roles for one task in one tab so the user can understand the
+whole execution state without switching workspaces. This is presentation only:
+each writer still runs in its own required worktree and `cwd`, and pane layout
+never relaxes file ownership, sequencing, or verification rules.
+
+Use one pane per real role and keep the smallest useful shape:
+
+| Visible roles | Layout |
+| --- | --- |
+| 1 | one full-size pane |
+| 2 | two equal side-by-side panes |
+| 3 | one left pane, two stacked right panes |
+| 4 | equal 2x2 grid |
+
+For a high-risk ClassHub task, the four stable positions are normally:
+
+```text
++----------------------+----------------------+
+| Root                 | PO                   |
++----------------------+----------------------+
+| Writer               | Reviewer             |
++----------------------+----------------------+
+```
+
+Roles may be sequential rather than concurrently working. Keep a completed PO
+or paused writer visible when it remains part of the current correction loop;
+close it only during task-owned cleanup. Do not launch a PO, reviewer, or extra
+writer merely to fill an empty position.
+
+Build the 2x2 layout from one existing task pane using returned pane IDs:
+
+```bash
+dashboard_left_top='<existing-task-pane-id>'
+
+herdr pane split "$dashboard_left_top" \
+  --direction right --ratio 0.5 --no-focus
+dashboard_right_top='<pane-id returned by the split>'
+
+herdr pane split "$dashboard_right_top" \
+  --direction down --ratio 0.5 --no-focus
+dashboard_right_bottom='<pane-id returned by the split>'
+
+herdr pane split "$dashboard_left_top" \
+  --direction down --ratio 0.5 --no-focus
+dashboard_left_bottom='<pane-id returned by the split>'
+```
+
+For three roles, stop after the right pane is split down. For two roles, stop
+after the first right split. Rename every pane with the task and role, launch
+the agent with its exact checkout as `--cwd`, and report the standard metadata.
+Always preserve focus with `--no-focus`; structural changes must not interrupt
+the user's active pane.
+
+Root counts toward the four-pane cap when it is shown in the task dashboard.
+If four managed agents are genuinely required, put those four in a dedicated
+task tab and leave Root in its orchestration tab. If more than four visible
+roles are justified, use another phase-specific tab instead of creating narrow
+panes. The default delegation policy should make this exceptional.
+
+The user can temporarily enlarge any pane without changing the grid:
+
+```bash
+herdr pane zoom '<pane-id>' --toggle
+```
+
 ## Start one interactive agent in a sibling pane
 
 Use this for a single helper in the same checkout, especially reconnaissance or read-only review.
@@ -178,7 +245,7 @@ herdr pane rename "$helper_pane" auth-reviewer
 
 ```bash
 herdr pane run "$helper_pane" \
-  "codex -m gpt-5.6-terra -c 'model_reasoning_effort=\"medium\"'"
+  "codex -m gpt-5.6-luna -c 'model_reasoning_effort=\"max\"'"
 herdr pane get "$helper_pane"
 herdr wait agent-status "$helper_pane" --status idle --timeout 30000
 herdr pane read "$helper_pane" --source recent-unwrapped --lines 40
@@ -207,7 +274,7 @@ herdr agent start auth-implementer \
   --cwd "$PWD" \
   --split right \
   --no-focus \
-  -- codex -m gpt-5.6-terra -c 'model_reasoning_effort="medium"'
+  -- codex -m gpt-5.6-luna -c 'model_reasoning_effort="max"'
 ```
 
 Inspect the returned record instead of assuming the pane ID:
