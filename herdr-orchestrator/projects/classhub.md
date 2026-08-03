@@ -31,8 +31,9 @@ choose exactly one lane:
   tenant isolation, queue/cron/observer behavior, or an API-contract-sensitive
   change.
 
-The minimal Paseo runtime accepts only `tiny` and `normal`. If intake is
-`high-risk`, stop and ask the user; do not downgrade it or launch a worker.
+The Paseo runtime accepts `tiny`, `normal`, and `high-risk`. Keep the honest
+lane classification: high-risk work receives stronger context, evidence, and
+independent verification, but is not blocked merely by its label.
 
 Record the intake through `bin/harness intake`. Use the ClassHub context rules
 for the selected lane. Do not classify a task as tiny merely to skip required
@@ -46,7 +47,7 @@ Every writer contract records an explicit model and effort. Defaults are:
 | --- | --- | --- |
 | `tiny` | Luna `medium` | Luna `low` for pure lookup/transformation; raise Luna effort when the checklist is subtle |
 | `normal` | Luna `max` | lower to Luna `high` for very clear work; use Terra only for demonstrated ambiguity or cross-subsystem judgment |
-| `high-risk` | Not supported in MVP | stop before delegation; governance must be implemented first |
+| `high-risk` | Luna `max` | use existing specs as authority; Terra only for concrete cross-subsystem ambiguity |
 
 The normal ClassHub writer path accepts only `gpt-5.6-luna` and
 `gpt-5.6-terra`. Do not route a concrete bug fix or bounded implementation to
@@ -65,18 +66,25 @@ bug.
 
 ### Tiny
 
-One writer produces a candidate. Root verifies it. If a specific risk requires
-reviewer or PO governance, stop instead of adding another managed role.
+One writer produces a candidate. A separate tester runs required checks and a
+separate reviewer verifies scope and behavior. Roles may execute sequentially.
 
 ### Normal
 
-One writer produces and tests a candidate. Root checks scope, spec alignment,
-the exact diff, and focused tests. Reuse the same writer for corrections.
+One writer produces a candidate. A tester runs focused checks and a reviewer
+checks scope, spec alignment, the exact diff, and behavior. Reuse the same
+writer for corrections, then repeat both independent gates.
 
 ### High-risk
 
-Not executable in the minimal release. Do not simulate the required PO,
-reviewer, or governance gates with prose acknowledgements.
+One writer produces a candidate. Independent tester and reviewer roles apply
+the repository's high-risk context, durable evidence requirements, business
+invariants, and candidate plus integrated verification. An integrator performs
+the target-branch update only after the candidate gates pass.
+Do not ask the user to reconfirm a clear investigate/fix/implement request.
+Escalate only when repository evidence cannot resolve a product choice that
+can materially change money, consumed sessions, historical attendance, tenant
+visibility, permissions, irreversible data, paid services, or production.
 
 Never use additional agents only to create agreement. Evidence, not agent
 count, closes the task.
@@ -87,9 +95,9 @@ Use Laravel Dusk as the only browser-testing surface for the minimal release.
 Do not install or route work through Realbrowser, ad-hoc Chrome automation, or a
 second browser framework.
 
-When browser behavior is in a supported `tiny` or `normal` task, Root runs the
-exact focused `bin/dusk-safe` command on the candidate and after integration.
-The MVP does not launch a separate browser tester. Never invoke `php artisan
+When browser behavior is in scope, the tester runs the exact focused
+`bin/dusk-safe` command on the candidate and after integration. Root never
+runs browser tests. Never invoke `php artisan
 dusk` directly or bypass a refusal from `bin/dusk-safe`.
 
 ## Context routing
@@ -117,9 +125,10 @@ can point to the authoritative file.
   non-empty findings.
 - The ledger binds the canonical full task digest. Reusing a task ID or editing
   any contract field after launch is forbidden and fails closed.
-- A new feature or behavior change that requires a new/updated spec is outside
-  this one-worker MVP because ClassHub requires a PO agent first. Stop and ask
-  the user rather than bypassing that rule.
+- A new feature or behavior change that requires a new/updated spec needs a PO
+  decision when it changes material product behavior. Bug fixes that restore
+  already-specified behavior may proceed without a separate PO pass; Root must
+  still record and verify the spec alignment.
 - Root records the current target branch and its full HEAD as `target_branch`
   and `base_revision` before creating a worktree. These values are immutable
   for the task. If the target branch moves, stop and rebase or recreate the
@@ -141,31 +150,34 @@ can point to the authoritative file.
 
 ## Verification gate
 
-Root must check all of the following before `ACCEPT`:
+The assigned tester, reviewer, and integrator must establish all of the
+following before Root may record `ACCEPT`:
 
 1. The candidate is based on the Root-locked base revision and the target
    branch has not moved.
 2. Git-derived changed files exactly match the handoff.
 3. Every changed file matches `owns` and none matches `does_not_own`.
 4. The candidate contains no whitespace errors or unrelated changes.
-5. Worker evidence references the exact candidate revision, but remains only a
-   claim. Root runs every exact verification command itself in the clean
-   candidate worktree and records a `herdr_root_verification` artifact.
+5. Writer evidence references the exact candidate revision, but remains only a
+   claim. The tester runs every exact verification command in the clean
+   candidate worktree and records a verification artifact.
    When browser coverage is required, this includes the exact focused
    `bin/dusk-safe` command selected in the contract.
 6. ClassHub spec-first, tenant isolation, safe-test, harness story, and trace
    requirements are satisfied for the selected lane.
-7. Root explicitly acknowledges every `requirements` and `done_when` entry
-   after personally inspecting the relevant behavior and diff.
+7. The reviewer explicitly acknowledges every `requirements` and `done_when`
+   entry after inspecting the relevant behavior and diff.
 8. The destination checkout is clean, on the locked target branch, and still
    points at the locked base. Preserve all pre-existing user changes.
-9. Root fast-forwards the target branch to the candidate, then reruns the same
-   verification in the target checkout. Only a passing `integrated` Root
-   verification can support `ACCEPT`.
+9. The integrator fast-forwards the target branch to the candidate, then the
+   tester and reviewer repeat their gates in the target checkout. Only passing
+   integrated evidence from both roles can support `ACCEPT`.
 
-Use `taskctl.py verify-handoff` only to inspect the worker claim. Use
-`taskctl.py root-verify` for the authoritative candidate and integrated gates.
-Neither replaces Root's business review.
+Use `taskctl.py verify-handoff` only to validate a worker claim mechanically.
+The legacy `taskctl.py root-verify` name must not cause Root to execute it; the
+tester owns command execution and the reviewer owns business review. Until the
+CLI records those role identities independently, the affected gate fails
+closed and Root may not accept the task.
 
 ## Minimal Definition of Done
 
@@ -175,14 +187,16 @@ A ClassHub implementation is done only when all of these are true:
    ownership, verification commands, and `done_when` before delegation.
 2. Required spec/PO decisions exist for the selected lane.
 3. The candidate is committed and its worktree is clean.
-4. Root inspected the exact locked-base-to-candidate diff and acknowledged each
-   requirement and `done_when` item.
-5. Root-owned candidate verification passed with the correct safe runner.
-6. The task remained `tiny` or `normal`; high-risk work never entered this flow.
+4. An independent reviewer inspected the exact locked-base-to-candidate diff
+   and acknowledged each requirement and `done_when` item.
+5. Independent candidate verification passed with the correct safe runner.
+6. The task kept its honest lane and satisfied the lane-specific governance;
+   high-risk classification was not downgraded to bypass evidence.
 7. ClassHub harness story/proof requirements for the lane are complete.
-8. The unchanged target branch was fast-forwarded to the candidate.
-9. Root-owned integrated verification passed in the clean target checkout.
-10. A decision referencing that exact integrated verification records
+8. An integrator fast-forwarded the unchanged target branch to the candidate.
+9. Independent tester and reviewer verification passed in the clean target
+   checkout.
+10. A decision referencing that exact integrated evidence records
     `ACCEPT`; only then may Root report completion.
 
 A read-only investigation replaces items 3–10 with: unchanged clean locked

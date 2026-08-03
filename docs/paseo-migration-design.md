@@ -16,14 +16,15 @@ step-by-step delivery contract is in
 ## Objective
 
 Replace Herdr as the managed-agent execution and observation layer with Paseo.
-Keep the Chief of Staff responsible for intake, decomposition, authority,
-model routing, Git trust anchors, verification, integration, acceptance, and
-the final user report.
+Keep the Chief of Staff responsible for intake, decomposition, authority, role
+and model routing, Git trust anchors, orchestration acceptance, and the final
+user report. Technical investigation, implementation, testing, review, and Git
+integration belong to managed roles, never Root.
 
 The migration must not weaken the rule that worker output is an untrusted
-claim. A task is complete only after Root independently verifies the exact
-candidate, integrates it safely, and repeats verification in the clean target
-checkout.
+claim. A task is complete only after independent tester and reviewer roles
+verify the exact candidate, an integrator updates the target safely, and those
+independent gates repeat in the clean target checkout.
 
 ## Target architecture
 
@@ -33,12 +34,12 @@ User request
     -> lock target branch and exact base commit
     -> create task-owned Git worktree from the locked commit
     -> register/select Paseo workspace
-    -> launch an explicitly routed Codex worker through Paseo
-    -> monitor with Paseo and reuse the same agent for corrections
+    -> launch explicitly routed, bounded Codex roles through Paseo
+    -> monitor with Paseo and reuse the writer for corrections
     -> receive commit-addressed evidence and handoff
-    -> Root candidate diff/scope/test verification
-    -> fast-forward unchanged target branch
-    -> Root integrated diff/scope/test verification
+    -> independent candidate tester and reviewer gates
+    -> integrator fast-forwards unchanged target branch
+    -> independent integrated tester and reviewer gates
     -> ACCEPT, REVISE, or WAIT
     -> concise business-level report
 ```
@@ -58,12 +59,11 @@ Chief of Staff owns:
 - requirement intake and risk classification;
 - task contracts, ownership, exclusions, and authority;
 - target branch and exact base-revision locking;
-- writer/reviewer topology;
+- investigator/writer/tester/reviewer/integrator topology;
 - model and reasoning-effort policy;
 - evidence and handoff semantics;
-- direct Git and diff inspection;
-- candidate and integrated verification;
-- corrections and acceptance decisions;
+- coordination of candidate and integrated evidence;
+- correction routing and ledger acceptance decisions;
 - preservation of user work and safe cleanup;
 - the final report.
 
@@ -104,13 +104,16 @@ The permitted topology is one managed level:
 
 ```text
 Root Chief of Staff
-    -> writer
-    -> optional reviewer for a named risk
+    -> investigator (optional)
+    -> writer (for changes)
+    -> tester
+    -> reviewer
+    -> integrator (for target mutation)
 ```
 
-A writer or reviewer creating any child agent is a policy violation. For the
-default external Root, the writer has no Paseo parent. When Root was optionally
-launched through Paseo, the writer parent must equal that exact Root ID.
+Any managed role creating a child agent is a policy violation. For the default
+external Root, each role has no Paseo parent. When Root was optionally launched
+through Paseo, every role parent must equal that exact Root ID.
 
 ### 3. Chief of Staff retains exact Git worktree control
 
@@ -157,7 +160,8 @@ version and backward-compatibility policy.
 
 - bounded routine work starts with `gpt-5.6-luna`;
 - tiny work may use Luna `medium`;
-- normal work defaults to Luna `max`; high-risk work is fail-closed in the MVP;
+- normal and high-risk work default to Luna `max`; high-risk work keeps stronger
+  governance and Root verification without being blocked by classification alone;
 - increase Luna effort before escalating providers;
 - use `gpt-5.6-terra` only for a concrete judgment or architecture need, or
   after an evidence-backed Luna limitation;
@@ -289,13 +293,13 @@ replacement.
 - the handoff matches the task, owner, locked base, and exact candidate commit;
 - the candidate worktree is clean and points at the candidate;
 - actual changed files satisfy `owns` and `does_not_own`;
-- Root personally inspects the diff and checks every requirement and
+- an independent reviewer inspects the diff and checks every requirement and
   `done_when` item;
-- Root's candidate verification passes;
+- independent candidate tester and reviewer verification passes;
 - the target branch is still safe to fast-forward from the locked base;
 - integration completes without overwriting user work;
-- Root repeats verification in the clean target checkout;
-- integrated verification passes and is the evidence referenced by the
+- tester and reviewer repeat verification in the clean target checkout;
+- integrated independent verification passes and is the evidence referenced by the
   decision.
 
 Paseo status, logs, structured output, and reviewer agreement are supporting
@@ -422,7 +426,8 @@ returns new task intake to the known-good revision.
 
 - Use CLI control rather than injecting the entire Paseo MCP catalog into
   workers.
-- Start one writer; add a reviewer only for a named risk.
+- Start only the bounded roles required by the contract; never let a writer
+  self-test or self-review its candidate.
 - Reuse the writer for corrections.
 - Use Luna before Terra according to the routing policy.
 - Use one long-lived wait rather than repeated status polling.
@@ -437,7 +442,7 @@ The following are valuable but intentionally deferred:
 
 - native Paseo-managed worktree creation and teardown;
 - `paseo.json` setup hooks, per-worktree services, ports, and reverse proxy;
-- Paseo browser tester;
+- ad-hoc browser automation outside the ClassHub tester role;
 - schedules and heartbeats;
 - mobile or remote approval workflows;
 - automatic PR creation or Git integration actions;
@@ -452,12 +457,12 @@ review before adoption.
 The control-plane migration is complete only when:
 
 - Chief of Staff can run without a Herdr binary or server;
-- one task can travel from contract through Paseo delegation to integrated
-  Root verification and decision;
+- one task can travel from contract through Paseo delegation to independent
+  integrated verification and a Root ledger decision;
 - the requested Luna/Terra route is confirmed at runtime;
 - managed workers cannot create nested agents through the provided tools;
 - worker completion without a valid handoff cannot advance the gate;
-- worker-declared tests cannot replace Root tests;
+- writer-declared tests cannot replace independent tester evidence;
 - candidate success cannot replace integrated verification;
 - correction reuses the intended Paseo agent;
 - task cleanup preserves user work and unintegrated candidates;

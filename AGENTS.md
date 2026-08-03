@@ -14,9 +14,12 @@ elsewhere, use `CLASSHUB_REPOSITORY` or the CLI `--repository` option.
 
 ## Default operating contract
 
-- The root agent is the Engineering Chief of Staff. It owns intake,
-  decomposition, delegation, monitoring, verification, correction,
-  integration, cleanup, and the final business-level report.
+- The root agent is the Engineering Chief of Staff and is coordination-only.
+  It owns intake, decomposition, role selection, delegation, monitoring,
+  escalation, orchestration cleanup, and the final business-level report.
+  Root must not implement, edit product source, run tests or browser checks,
+  review technical diffs, perform Git integration, or act as the technical
+  acceptance authority.
 - Managed agents receive bounded, self-contained work. They do not inherit the
   root conversation or authority.
 - ClassHub writer tasks use only explicit `gpt-5.6-luna` or
@@ -26,16 +29,26 @@ elsewhere, use `CLASSHUB_REPOSITORY` or the CLI `--repository` option.
 - Use Paseo as the only managed-worker control plane. Root is normally the
   external Codex CLI opened in this repository; workers may not create a
   second nested agent hierarchy.
-- The minimal release launches exactly one managed worker per task. It supports
-  implementation and read-only investigation for `tiny` and `normal` lanes.
-  Stop and ask the user before any `high-risk` ClassHub task; reviewer and PO
-  governance are deliberately deferred instead of being simulated.
-- Also stop before a new or changed ClassHub spec because the repository
-  requires a PO agent for that decision; the one-worker MVP supports features
-  only when the governing product behavior is already locked.
-- For ClassHub browser verification, Root uses the repository's Laravel Dusk
-  suite through `bin/dusk-safe`. The minimal release does not launch a separate
-  browser tester.
+- Paseo must assign each execution responsibility to a bounded managed role.
+  Supported roles are investigator, writer, tester, reviewer, and integrator.
+  Use only the roles genuinely required by the task and keep at most four live
+  roles at once; roles may run sequentially. A worker that created a candidate
+  may not review or accept that same candidate. A `high-risk` label increases
+  evidence and role separation; it does not by itself require user
+  confirmation or block execution.
+- A clear user request to investigate, fix, or implement grants Root authority
+  to coordinate the full local workflow when existing ClassHub specs already
+  lock the intended behavior. Assigned agents resolve technical choices and
+  the smallest backward-compatible correction within their contracts without
+  asking the user to reconfirm the task.
+- Escalate only an unresolved product choice that can materially change money,
+  consumed sessions, historical attendance, tenant visibility, permissions,
+  irreversible data, paid external-service usage, or production state. A new
+  or changed ClassHub spec needs a PO decision only when it introduces or
+  changes such product behavior; alignment notes and bug-fix evidence for
+  already-locked behavior do not require a separate PO pass.
+- For ClassHub browser verification, a managed tester uses the repository's
+  Laravel Dusk suite through `bin/dusk-safe`. Root never runs Dusk itself.
 - Concurrent writers always use separate Git worktrees and non-overlapping
   ownership.
 - Keep at most four genuinely required managed roles visible for one task in
@@ -44,21 +57,26 @@ elsewhere, use `CLASSHUB_REPOSITORY` or the CLI `--repository` option.
   a local candidate commit in a task-created worktree. It never implies push,
   deploy, pull-request creation, production data changes, or unsafe test
   execution.
-- Treat worker output and artifacts as claims. Verify the candidate, changed
-  scope, ClassHub safe-test evidence, and relevant business behavior before
-  accepting it.
+- Treat worker output and artifacts as claims. A reviewer independently checks
+  candidate scope, specs, diff, and business behavior; a tester independently
+  runs the required safe-test commands. Root checks only artifact identity,
+  provenance, required-role completion, and ledger transitions.
 - Root locks the target branch and base commit in the task contract before
   delegation. A managed agent cannot choose or move either trust anchor.
-- Managed agents may create only worker evidence and handoffs. Only Root may
-  run `taskctl.py root-verify`, integrate a candidate, or create an `ACCEPT`
-  decision.
-- A passing candidate check is not completion. Root must fast-forward the
-  unchanged target branch to the candidate, rerun verification in the clean
-  target checkout, and require a passing integrated verification before
-  `ACCEPT` or a completion report.
-- Root must personally inspect the diff and explicitly acknowledge every task
-  requirement and `done_when` item during both candidate and integrated
-  verification. A command result alone does not prove business correctness.
+- Managed agents create role-scoped evidence and handoffs. The reviewer owns
+  technical acceptance evidence, the tester owns executable verification
+  evidence, and the integrator owns target-branch mutation and integrated
+  verification orchestration. Root records `ACCEPT` only when the ledger
+  mechanically proves that all required independent role gates passed.
+- A passing candidate check is not completion. The integrator must
+  fast-forward the unchanged target branch to the candidate, then dispatch the
+  tester and reviewer against the clean integrated checkout. Passing integrated
+  tester and reviewer evidence is required before `ACCEPT` or a completion
+  report.
+- Root must not substitute its own technical judgment for a missing worker
+  gate. If Paseo or the current Chief tooling cannot launch or record a
+  required role, the task remains blocked or retained; Root does not do that
+  role's work directly.
 - Keep ClassHub product records in ClassHub's existing `bin/harness` durable
   layer. Do not create a competing intake/story/decision/trace database here.
 - Keep orchestration artifacts outside the ClassHub tracked source tree, under

@@ -276,11 +276,6 @@ def command_doctor(args: argparse.Namespace) -> None:
 
 def command_prepare_classhub(args: argparse.Namespace) -> None:
     repository = Path(args.repository).resolve()
-    if args.lane == "high-risk":
-        raise ChiefError(
-            "The minimal Paseo release supports only tiny and normal tasks; "
-            "high-risk ClassHub work requires governance gates not implemented yet"
-        )
     task_kind = getattr(args, "task_kind", "implementation")
     model, effort = route_classhub_model(
         args.lane, getattr(args, "model", None), getattr(args, "effort", None)
@@ -570,10 +565,6 @@ def command_paseo_launch(args: argparse.Namespace) -> None:
     taskctl.validate_task(task, task_path)
     if task.get("schema_version") != taskctl.SCHEMA_VERSION:
         raise ChiefError("new Paseo launches require the current task schema")
-    if task["project_id"] == "classhub" and task["lane"] == "high-risk":
-        raise ChiefError(
-            "The minimal Paseo release cannot launch high-risk ClassHub tasks"
-        )
     prompt_path = (
         Path(args.prompt).resolve()
         if args.prompt
@@ -1182,7 +1173,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     prepare = commands.add_parser("prepare-classhub", help="create a ClassHub task and rendered writer prompt")
     prepare.add_argument("--task-id", required=True)
-    prepare.add_argument("--lane", choices=("tiny", "normal"), required=True)
+    prepare.add_argument(
+        "--lane", choices=("tiny", "normal", "high-risk"), required=True
+    )
     prepare.add_argument(
         "--task-kind",
         choices=("implementation", "investigation"),

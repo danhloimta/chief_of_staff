@@ -39,8 +39,10 @@ the daemon.
   runtime topology checks.
 - Read-only investigation tasks return concrete findings at the unchanged
   locked base and require independent Root investigation verification.
-- The minimal runtime rejects high-risk ClassHub launches until its required
-  reviewer and PO governance gates are implemented.
+- The original cutover fixture rejected high-risk ClassHub launches. That
+  restriction is superseded by the current Chief policy: high-risk tasks keep
+  stronger evidence and Root verification, while escalation is reserved for a
+  concrete unresolved product decision with material business consequences.
 - Archive is normally allowed only after `ACCEPTED` and after rechecking
   integrated acceptance evidence. Explicit `--discard-empty` is limited to a
   `WAIT`/`FAILED` task with no artifacts and a clean writer worktree still at

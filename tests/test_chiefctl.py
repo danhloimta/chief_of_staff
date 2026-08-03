@@ -1062,7 +1062,7 @@ class ChiefCtlTest(unittest.TestCase):
         with self.assertRaisesRegex(chiefctl.ChiefError, "must be clean"):
             chiefctl.command_prepare_classhub(args)
 
-    def test_prepare_rejects_high_risk_and_existing_task_identity(self) -> None:
+    def test_prepare_rejects_existing_task_identity(self) -> None:
         task_path, _ = self.prepare_runtime_task()
         args = Namespace(
             repository=str(self.repository),
@@ -1087,10 +1087,36 @@ class ChiefCtlTest(unittest.TestCase):
         with self.assertRaisesRegex(chiefctl.ChiefError, "overwrite"):
             chiefctl.command_prepare_classhub(args)
 
-        args.task_id = "high-risk-not-supported"
-        args.lane = "high-risk"
-        with self.assertRaisesRegex(chiefctl.ChiefError, "only tiny and normal"):
-            chiefctl.command_prepare_classhub(args)
+    def test_prepare_accepts_high_risk_task(self) -> None:
+        args = Namespace(
+            repository=str(self.repository),
+            output_dir=str(self.root / "high-risk-runtime"),
+            task_id="high-risk-fix",
+            lane="high-risk",
+            task_kind="implementation",
+            model=None,
+            effort=None,
+            objective="Correct a bounded high-risk bug",
+            context="Existing specs lock the expected behavior.",
+            requirement=["Restore the specified behavior"],
+            owns=["src/**"],
+            does_not_own=[],
+            verification=["bin/test-safe tests/Feature/RuntimeTest.php"],
+            done_when=["Focused business regression passes"],
+            dependency=[],
+            instruction_layer=[],
+            owner="classhub-writer",
+            workspace=None,
+        )
+
+        chiefctl.command_prepare_classhub(args)
+
+        task = taskctl.read_json(
+            self.root / "high-risk-runtime" / "high-risk-fix.task.json"
+        )
+        self.assertEqual(task["lane"], "high-risk")
+        self.assertEqual(task["model"], "gpt-5.6-luna")
+        self.assertEqual(task["effort"], "max")
 
     def test_tiny_task_defaults_to_luna_medium(self) -> None:
         model, effort = chiefctl.route_classhub_model("tiny", None, None)

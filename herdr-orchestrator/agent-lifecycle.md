@@ -167,20 +167,19 @@ Use one pane per real role and keep the smallest useful shape:
 | 3 | one left pane, two stacked right panes |
 | 4 | equal 2x2 grid |
 
-For a high-risk ClassHub task, the four stable positions are normally:
+For a high-risk ClassHub task, keep the default one-worker shape when existing
+specs already lock the behavior:
 
 ```text
-+----------------------+----------------------+
-| Root                 | PO                   |
-+----------------------+----------------------+
-| Writer               | Reviewer             |
-+----------------------+----------------------+
+Root -> Writer
 ```
 
-Roles may be sequential rather than concurrently working. Keep a completed PO
-or paused writer visible when it remains part of the current correction loop;
-close it only during task-owned cleanup. Do not launch a PO, reviewer, or extra
-writer merely to fill an empty position.
+A PO or reviewer is a real role only when a concrete unresolved product choice
+or independent risk requires it. Do not launch either role merely because the
+task is labeled high-risk, and do not launch extra workers to fill a layout.
+If such a role is genuinely required, roles may be sequential rather than
+concurrently working; keep completed decision evidence visible through the
+current correction loop and close it only during task-owned cleanup.
 
 Build the 2x2 layout from one existing task pane using returned pane IDs:
 
